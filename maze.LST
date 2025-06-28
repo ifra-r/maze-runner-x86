@@ -1,0 +1,289 @@
+     1                                  [org 0x100]
+     2 00000000 EB06                        jmp start
+     3 00000002 00000000                oldIsr: dd 0x0              
+     4                                  playerChar: equ 0x4050          ;0x2450              ;0x0d50     ;0x50 is ascii of 'P'     
+     5                                  winPos: equ 2878
+     6                                  wall: equ 0x70DB                ;0x04DB
+     7                                  path: equ 0x702e
+     8 00000006 4001                    playerPos: dw 320
+     9                                  
+    10                                  start:
+    11 00000008 E88A01                      call draw_maze
+    12 0000000B E87001                      call draw_intials
+    13 0000000E E84601                      call set_Isr
+    14                                      infloop:    
+    15 00000011 B400                            mov ah, 0
+    16 00000013 CD16                            int 0x16            ; get keystroke in al
+    17                                  
+    18 00000015 3C1B                            cmp al, 27          ; cmp it with escape key code           ;  ;0x01        ; 0x11B ??? 
+    19 00000017 75F8                            jne infloop
+    20                                          ; restore oldisr at its position (unhookin interrupt)
+    21 00000019 6A00                            push 0
+    22 0000001B 07                              pop es
+    23 0000001C A1[0200]                        mov ax, [oldIsr]
+    24 0000001F 8B1E[0400]                      mov bx, [oldIsr+2]
+    25 00000023 FA                              cli
+    26 00000024 26A32400                        mov [es:9*4], ax
+    27 00000028 26891E2600                      mov [es:9*4+2], bx
+    28 0000002D FB                              sti
+    29                                          ;terminate prog
+    30 0000002E B8004C                          mov ax, 0x4c00
+    31 00000031 CD21                            int 0x21
+    32                                  myisr:
+    33 00000033 60                          pusha
+    34 00000034 BA6000                      mov dx, 0x60                ; to read word 
+    35 00000037 ED                          in ax, dx                   ; read from keyboard
+    36 00000038 6800B8                      push 0xb800
+    37 0000003B 07                          pop es
+    38                                      up:
+    39 0000003C 3D4830                      cmp ax, 0x3048
+    40 0000003F 7508                        jne down
+    41 00000041 68[C200]                    push handle_up
+    42 00000044 E84000                      call handle_cursor
+    43 00000047 EB29                        jmp checkWinStatus
+    44                                  
+    45                                      down:
+    46 00000049 3D5030                      cmp ax, 0x3050
+    47 0000004C 7506                        jne left
+    48 0000004E 68[C700]                    push handle_down
+    49 00000051 E83300                      call handle_cursor
+    50                                  
+    51                                      left:
+    52 00000054 3D4B30                      cmp ax, 0x304b
+    53 00000057 7506                        jne right
+    54 00000059 68[CC00]                    push handle_left
+    55 0000005C E82800                      call handle_cursor
+    56                                  
+    57                                      right:
+    58 0000005F 3D4D30                      cmp ax, 0x304d
+    59 00000062 7506                        jne isR
+    60 00000064 68[D000]                    push handle_right
+    61 00000067 E81D00                      call handle_cursor
+    62                                  
+    63                                      isR:
+    64 0000006A 83F813                      cmp ax, 0x0013
+    65 0000006D 7503                        jne checkWinStatus
+    66 0000006F E86200                      call reset
+    67                                  
+    68                                      checkWinStatus:
+    69 00000072 B83E0B                      mov ax, winPos
+    70 00000075 3B06[0600]                  cmp ax, [playerPos]
+    71 00000079 7506                        jne exit
+    72                                      ;if won:
+    73 0000007B E89A00                      call clrscr
+    74 0000007E E86000                      call win_display
+    75                                  
+    76                                      exit:
+    77 00000081 61                          popa
+    78 00000082 2EFF2E[0200]                jmp far [cs:oldIsr]          ; giving control to org ISR (it will clean up stack so no need of iret) 
+    79                                  
+    80                                  handle_cursor:
+    81                                      ; pushes address of func to call
+    82 00000087 55                          push bp
+    83 00000088 89E5                        mov bp, sp
+    84 0000008A 60                          pusha
+    85                                  
+    86 0000008B 8B1E[0600]                  mov bx, [playerPos]
+    87 0000008F FF5604                      call word [bp+4]          ;only chnages bx
+    88 00000092 6A00                        push 0x0
+    89 00000094 53                          push bx
+    90 00000095 E89D00                      call is_out_of_bounds
+    91 00000098 59                          pop cx
+    92 00000099 83F901                      cmp cx, 1           ;is out of bounds true
+    93 0000009C 741D                        je upexit
+    94                                  
+    95 0000009E 6800B8                      push 0xb800
+    96 000000A1 07                          pop es
+    97                                      ; is new pos hitting wall
+    98 000000A2 26813FDB70                  cmp word [es:bx], wall
+    99 000000A7 7412                        je upexit 
+   100                                  
+   101                                      ;not out of bounds
+   102 000000A9 8B3E[0600]                  mov di, [playerPos]
+   103 000000AD 26C7052E70                  mov word [es:di], path               ; prev char will always be path duhh             ;prevChar    ; restor prev char at playerpos whixh isnt updated yyet
+   104 000000B2 26C7075040                  mov word [es:bx], playerChar         ; move player to new place (bx)
+   105 000000B7 891E[0600]                  mov word [playerPos], bx             ; update player pos
+   106                                  
+   107                                      upexit:
+   108 000000BB 61                          popa
+   109 000000BC 89EC                        mov sp, bp
+   110 000000BE 5D                          pop bp
+   111 000000BF C20200                      ret 2
+   112                                  handle_up:
+   113 000000C2 81EBA000                    sub bx, 160
+   114 000000C6 C3                          ret
+   115                                  handle_down:
+   116 000000C7 81C3A000                    add bx, 160
+   117 000000CB C3                          ret
+   118                                  handle_left:
+   119 000000CC 83EB02                      sub bx, 2
+   120 000000CF C3                          ret 
+   121                                  handle_right:
+   122 000000D0 83C302                      add bx, 2
+   123 000000D3 C3                          ret
+   124                                  reset:
+   125 000000D4 C706[0600]4001              mov word [playerPos], 320
+   126 000000DA E8B800                      call draw_maze
+   127 000000DD E89E00                      call draw_intials
+   128 000000E0 C3                          ret
+   129                                  win_display:
+   130 000000E1 06                          push es
+   131 000000E2 6800B8                      push 0xB800
+   132 000000E5 07                          pop es
+   133 000000E6 26C606000057                mov byte [es:0], 'W'
+   134 000000EC 26C6060100FA                mov byte [es:1], 0xFA
+   135 000000F2 26C60602004F                mov byte [es:2], 'O'
+   136 000000F8 26C6060300FA                mov byte [es:3], 0xFA
+   137 000000FE 26C60604004E                mov byte [es:4], 'N'
+   138 00000104 26C6060500FA                mov byte [es:5], 0xFA
+   139 0000010A 26C606060021                mov byte [es:6], '!'
+   140 00000110 26C6060700FA                mov byte [es:7], 0xFA
+   141 00000116 07                          pop es
+   142 00000117 C3                          ret
+   143                                  clrscr: 
+   144 00000118 50                          push ax
+   145 00000119 06                          push es
+   146 0000011A 57                          push di
+   147                                  
+   148 0000011B B800B8                      mov ax, 0xb800
+   149 0000011E 8EC0                        mov es, ax
+   150 00000120 BF0000                      mov di, 0                     ;location indexer
+   151                                  
+   152                                      nextposition:
+   153 00000123 26C7052007                      mov word[es:di], 0x0720   ;black ;space  character
+   154 00000128 83C702                          add di, 2                 ;next cell
+   155 0000012B 81FFA00F                        cmp di, 4000              ;total cells - 80*25= 2000 (2 byte cells) so 4000
+   156 0000012F 75F2                            jnz nextposition
+   157                                  
+   158 00000131 5F                          pop di
+   159 00000132 07                          pop es
+   160 00000133 58                          pop ax
+   161 00000134 C3                          ret
+   162                                  is_out_of_bounds:
+   163                                      ; recieves res and location
+   164 00000135 55                          push bp
+   165 00000136 89E5                        mov bp, sp
+   166 00000138 837E0400                    cmp word [bp+4], 0
+   167 0000013C 7C0E                        jl exit_out_of_bound
+   168 0000013E 817E04A00F                  cmp word [bp+4], 4000
+   169 00000143 7F07                        jg exit_out_of_bound
+   170                                  
+   171                                      exit_within_bounds:
+   172 00000145 C746060000                  mov word [bp+6], 0x0        ;true ==> boundary hi hai paeen
+   173 0000014A EB05                        jmp b1
+   174                                      exit_out_of_bound:
+   175 0000014C C746060100                      mov word [bp+6], 0x1
+   176                                      b1:
+   177 00000151 89EC                        mov sp, bp
+   178 00000153 5D                          pop bp
+   179 00000154 C20200                      ret 2               ; not 4 cause parameter return krna paeen
+   180                                  
+   181                                  set_Isr:
+   182 00000157 06                          push es
+   183 00000158 50                          push ax
+   184 00000159 53                          push bx
+   185 0000015A 31C0                        xor ax, ax
+   186 0000015C 8EC0                        mov es, ax
+   187 0000015E 26A12400                    mov ax, [es:9*4]
+   188 00000162 A3[0200]                    mov [oldIsr], ax
+   189 00000165 26A12600                    mov ax, [es:9*4+2]
+   190 00000169 A3[0400]                    mov [oldIsr+2], ax          ; oldisr saved
+   191 0000016C FA                          cli                         ; disabling interrupts to avoid program crash 
+   192 0000016D 26C7062400[3300]            mov word [es:9*4], myisr
+   193 00000174 268C0E2600                  mov word [es:9*4+2], cs
+   194 00000179 FB                          sti                         ; interrupts enabled agaim
+   195 0000017A 5B                          pop bx
+   196 0000017B 58                          pop ax
+   197 0000017C 07                          pop es
+   198 0000017D C3                          ret
+   199                                  draw_intials:
+   200 0000017E 06                          push es
+   201 0000017F 6800B8                      push 0xb800
+   202 00000182 07                          pop es
+   203 00000183 8B3E[0600]                  mov di, [playerPos]
+   204 00000187 26C7055040                  mov word [es:di], playerChar               ;0x0250    ;23          ;5e      ;3c    ;3e
+   205 0000018C 26C7063E0BDB02              mov word [es:winPos], 0x02db        ;57 ais ascii of W
+   206 00000193 07                          pop es
+   207 00000194 C3                          ret
+   208                                  draw_maze:
+   209 00000195 60                          pusha
+   210                                      ; using bits
+   211 00000196 6800B8                      push 0xb800
+   212 00000199 07                          pop es
+   213 0000019A B97D00                      mov cx, 125             ; totak 125 words
+   214 0000019D 31FF                        xor di, di
+   215 0000019F 31F6                        xor si, si
+   216                                      outerloop:
+   217 000001A1 51                              push cx
+   218                                          ; deal with onw word
+   219 000001A2 B91000                          mov cx, 16
+   220 000001A5 8B95[C701]                      mov dx, word [maze+di]
+   221 000001A9 F8                              CLC
+   222                                          here:
+   223 000001AA D1E2                                shl dx, 1
+   224 000001AC 7207                                jc draw_wall                    ;if 1, draw wall.        else ==> path
+   225                                              draw_path:
+   226 000001AE 26C7042E70                              mov word [es:si], path          
+   227 000001B3 EB05                                    jmp updates
+   228                                              draw_wall:
+   229 000001B5 26C704DB70                              mov word [es:si], wall         
+   230                                          updates:
+   231 000001BA 83C602                              add si, 2
+   232 000001BD E2EB                                loop here
+   233                                  
+   234 000001BF 59                              pop cx
+   235 000001C0 83C702                          add di, 2          ;move to next word
+   236 000001C3 E2DC                            loop outerloop
+   237 000001C5 61                          popa
+   238 000001C6 C3                          ret
+   239                                  maze:
+   240 000001C7 D8E1EB5CFCD8BE71F7-         dw 1110000111011000b, 0101110011101011b, 1101100011111100b, 0111000110111110b, 1111011011110111b,
+   240 000001D0 F6                 
+   241 000001D1 58EC6B003DDABD5FF7-         dw 1110110001011000b, 0000000001101011b, 1101101000111101b, 0101111110111101b, 1000011011110111b,
+   241 000001DA 86                 
+   242 000001DB 9B0F40BFB9FF80F736-         dw 0000111110011011b, 1011111101000000b, 1111111110111001b, 1111011110000000b, 1111000000110110b,
+   242 000001E4 F0                 
+   243 000001E5 8AED5E0FA0D87EF486-         dw 1110110110001010b, 0000111101011110b, 1101100010100000b, 1111010001111110b, 1111011110000110b,
+   243 000001EE F7                 
+   244 000001EF AA2F58EFAEFA06F1BE-         dw 0010111110101010b, 1110111101011000b, 1111101010101110b, 1111000100000110b, 1100011110111110b,
+   244 000001F8 C7                 
+   245 000001F9 02A013EF2E00BEFB80-         dw 1010000000000010b, 1110111100010011b, 0000000000101110b, 1111101110111110b, 1111011110000000b,
+   245 00000202 F7                 
+   246 00000203 FFBEFBA3FED7BEFBDF-         dw 1011111011111111b, 1010001111111011b, 1101011111111110b, 1111101110111110b, 0000001111011111b,
+   246 0000020C 03                 
+   247 0000020D FAEEFEAEDDEF97C37E-         dw 1110111011111010b, 1010111011111110b, 1110111111011101b, 1100001110010111b, 1011000001111110b,
+   247 00000216 B0                 
+   248 00000217 D88EF8A080C7B03BF1-         dw 1000111011011000b, 1010000011111000b, 1100011110000000b, 0011101110110000b, 1011101011110001b,
+   248 00000220 BA                 
+   249 00000221 00EEC02EB9FFC0DFE3-         dw 1110111000000000b, 0010111011000000b, 1111111110111001b, 1101111111000000b, 0111101111100011b,
+   249 0000022A 7B                 
+   250 0000022B 7780DFFE28B6DB3DC7-         dw 1000000001110111b, 1111111011011111b, 1011011000101000b, 0011110111011011b, 1011101111000111b,
+   250 00000234 BB                 
+   251 00000235 36BFD800551FD8C7DB-         dw 1011111100110110b, 0000000011011000b, 0001111101010101b, 1100011111011000b, 0111110111011011b,
+   251 0000023E 7D                 
+   252 0000023F 373E9B7601701F718B-         dw 0011111000110111b, 0111011010011011b, 0111000000000001b, 0111000100011111b, 0110000110001011b,
+   252 00000248 61                 
+   253 00000249 31B0A376EF7B7A751C-         dw 1011000000110001b, 0111011010100011b, 0111101111101111b, 0111010101111010b, 0000010000011100b,
+   253 00000252 04                 
+   254 00000253 C5861F00EF7B00751F-         dw 1000011011000101b, 0000000000011111b, 0111101111101111b, 0111010100000000b, 1001010000011111b,
+   254 0000025C 94                 
+   255 0000025D D5F7F1718E78BF0DD7-         dw 1111011111010101b, 0111000111110001b, 0111100010001110b, 0000110110111111b, 1101101111010111b,
+   255 00000266 DB                 
+   256 00000267 0020F577BB1E21EC47-         dw 0010000000000000b, 0111011111110101b, 0001111010111011b, 1110110000100001b, 1100001101000111b,
+   256 00000270 C3                 
+   257 00000271 F6AD35F01EB06D0060-         dw 1010110111110110b, 1111000000110101b, 1011000000011110b, 0000000001101101b, 1111110101100000b,
+   257 0000027A FD                 
+   258 0000027B F6A90545DED72D3BAF-         dw 1010100111110110b, 0100010100000101b, 1101011111011110b, 0011101100101101b, 0100000010101111b,
+   258 00000284 40                 
+   259 00000285 E1ABE92380AA6CFF23-         dw 1010101111100001b, 0010001111101001b, 1010101010000000b, 1111111101101100b, 0111010000100011b,
+   259 0000028E 74                 
+   260 0000028F 7D087DDF17010B7E18-         dw 0000100001111101b, 1101111101111101b, 0000000100010111b, 0111111000001011b, 0001010000011000b,
+   260 00000298 14                 
+   261 00000299 77DF457CDFBB5D0B63-         dw 1101111101110111b, 0111110001000101b, 1011101111011111b, 0000101101011101b, 0101011101100011b,
+   261 000002A2 57                 
+   262 000002A3 14C3551DD7BB006803-         dw 1100001100010100b, 0001110101010101b, 1011101111010111b, 0110100000000000b, 0001011100000011b,
+   262 000002AC 17                 
+   263 000002AD 55DF10C51F387F6F38-         dw 1101111101010101b, 1100010100010000b, 0011100000011111b, 0110111101111111b, 1100011000111000b,
+   263 000002B6 C6                 
+   264 000002B7 02C7FFEEEBFDBFB7C7-         dw 1100011100000010b, 1110111011111111b, 1111110111101011b, 1011011110111111b, 1111000011000111b
+   264 000002C0 F0                 
